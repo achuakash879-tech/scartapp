@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+</head>
+<body>
+    {% if mark >= 90 %}
+        <h1>Excellent</h1>
+    {% elif mark >= 80 %}
+        <h1>Very Good</h1>
+    {% elif mark >= 70 %}
+        <h1>Good</h1>
+    {% elif mark >= 60 %}
+        <h1>Average</h1>
+    {% else %}
+        <h1>Fail</h1>
+    {% endif %}
+</body>
+</html>

@@ -1,0 +1,16 @@
+p{
+    
+    font-family: Arial, sans-serif;
+    font-size: 16px;
+    line-height: 1.5;   
+    color: red;          
+}
+button {
+    background-color: lightblue; 
+    color: white;              
+    padding: 10px 20px;        
+    border: none;              
+    border-radius: 4px;        
+    cursor: pointer;  
+    font-color: white;         
+}

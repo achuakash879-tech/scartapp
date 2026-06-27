@@ -1,0 +1,43 @@
+{% extends 'inherit.html' %}
+{% block title %} Check Value {% endblock %}
+{% block content %}
+    <h1>Check Value</h1>
+    <p>The value of the number is: {{ number }}</p>
+   {% if number % 2 == 0 %}
+    <p>The number {{ number }} is even.</p>
+   {% else %}
+    <p>The number {{ number }} is odd.</p>
+   {% endif %}  
+   {% if number > 0 %}
+    <p>The number {{ number }} is positive.</p>
+   {% elif number < 0 %}
+    <p>The number {{ number }} is negative.</p>
+   {% else %}
+    <p>The number is zero.</p>
+   {% endif %}  
+   {% for i in range(number) %}
+    <p>{{ i }}</p>
+   {% endfor %}
+{% endblock %}
+    <title>Document</title>
+</head>
+<body>
+    <h1>Check Value</h1>
+    <p>The value of the number is: {{ number }}</p>
+   {% if number % 2 == 0 %}
+    <p>The number {{ number }} is even.</p>
+   {% else %}
+    <p>The number {{ number }} is odd.</p>
+   {% endif %}  
+   {% if number > 0 %}
+    <p>The number {{ number }} is positive.</p>
+   {% elif number < 0 %}
+    <p>The number {{ number }} is negative.</p>
+   {% else %}
+    <p>The number is zero.</p>
+   {% endif %}  
+   {% for i in range(number) %}
+    <p>{{ i }}</p>
+   {% endfor %}
+</body>
+</html>

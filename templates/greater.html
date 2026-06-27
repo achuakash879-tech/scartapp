@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+</head>
+<body>
+    <h1>Find the greater number</h1> 
+    <p>{{i}} and {{j}}</p> 
+       { % if i > j %}
+        <p>{{i}} is greater than {{j}}</p>
+        {% elif i < j %}    
+         <p>{{j}} is greater than {{i}}</p>
+        {% else %}
+         <p>Both numbers are equal</p>
+        {% endif %}
+
+    </h1>
+</body>
+</html>

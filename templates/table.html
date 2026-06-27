@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+</head>
+<body>
+    <h1>Table of {{i}}</h1>
+    <table border="1">
+        {% for k in range(1, j+1) %}
+        <tr>
+            <td>{{i}} x {{k}}</td>
+            <td>{{i * k}}</td>
+        </tr>
+        {% endfor %}
+    </table>
+    
+</body>
+</html>
+
