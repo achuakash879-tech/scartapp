@@ -5,6 +5,7 @@ from functools import wraps
 from flask import Flask, render_template, request, redirect, url_for, session, flash
 from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import generate_password_hash, check_password_hash
+from werkzeug.utils import secure_filename
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -13,9 +14,17 @@ app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY')
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///scatbys.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.config['UPLOAD_FOLDER'] = os.path.join(app.root_path, 'static', 'payment_screenshots')
+app.config['MAX_CONTENT_LENGTH'] = 5 * 1024 * 1024  # 5 MB max upload
+ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'webp'}
+G_PAY_UPI_ID = os.environ.get('G_PAY_UPI_ID', 'your-upi-id@okaxis')
+G_PAY_QR_IMAGE = os.environ.get('G_PAY_QR_IMAGE', '/static/payments/gpay-qr.png')
 
 db = SQLAlchemy()
 db.init_app(app)
+
+def allowed_payment_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 # =========================================================================
 # DATABASE MODELS
@@ -48,7 +57,10 @@ class Order(db.Model):
     product_id = db.Column(db.Integer, db.ForeignKey('product.id'), nullable=False)
     quantity = db.Column(db.Integer, nullable=False, default=1)
     total_price = db.Column(db.Float, nullable=False)
-    status = db.Column(db.String(50), nullable=False, default='Pending')  # Pending, Processing, Shipped, Delivered
+    status = db.Column(db.String(50), nullable=False, default='Payment Pending')  # Payment Pending, Processing, Shipped, Delivered
+    payment_method = db.Column(db.String(50), nullable=False, default='GPay / UPI')
+    payment_status = db.Column(db.String(50), nullable=False, default='Pending Verification')  # Pending Verification, Approved, Rejected
+    payment_screenshot = db.Column(db.String(255), nullable=True)
     ordered_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 class ContactMessage(db.Model):
@@ -1836,7 +1848,7 @@ ORDER_TEMPLATE = """
     <!-- Billing details card -->
     <div class="checkout-form-card">
         <h4 style="margin-bottom: 20px; font-size:1.25rem;"><i class="fa-solid fa-truck"></i> Shipping Information</h4>
-        <form action="/order/{{ product.id }}" method="POST" id="checkout-form">
+        <form action="/order/{{ product.id }}" method="POST" id="checkout-form" enctype="multipart/form-data">
             <div class="form-group">
                 <label class="form-label">Full Name</label>
                 <input type="text" class="form-control-custom" value="{{ session.get('username') }}" required readonly>
@@ -2293,7 +2305,7 @@ ADMIN_ORDERS_TEMPLATE = """
 {% block content %}
 <div style="margin-bottom: 25px;">
     <h2>Store Customer Orders</h2>
-    <p style="color:var(--text-muted);">Monitor placements, change logistical delivery status, and review total receipts.</p>
+    <p style="color:var(--text-muted);">Monitor orders, verify manual GPay payments, and update delivery status.</p>
 </div>
 
 {% if orders %}
@@ -2304,9 +2316,10 @@ ADMIN_ORDERS_TEMPLATE = """
                     <th>Order ID</th>
                     <th>Customer</th>
                     <th>Product & Qty</th>
-                    <th>Total Price</th>
-                    <th>Order Date</th>
-                    <th>Logistical Status</th>
+                    <th>Total</th>
+                    <th>Payment</th>
+                    <th>Screenshot</th>
+                    <th>Delivery Status</th>
                 </tr>
             </thead>
             <tbody>
@@ -2329,10 +2342,28 @@ ADMIN_ORDERS_TEMPLATE = """
                             </div>
                         </td>
                         <td style="font-weight:700;">&#8377;{{ "%.2f"|format(order.total_price) }}</td>
-                        <td>{{ order.ordered_at.strftime('%b %d, %Y') }}</td>
+                        <td>
+                            <div style="display:flex; flex-direction:column; gap:6px;">
+                                <span class="badge-status {% if order.payment_status == 'Approved' %}delivered{% elif order.payment_status == 'Rejected' %}danger{% else %}pending{% endif %}">
+                                    {{ order.payment_status }}
+                                </span>
+                                <form action="/admin/update-payment-status/{{ order.id }}" method="POST" style="display:flex; gap:5px; flex-wrap:wrap;">
+                                    <button name="payment_status" value="Approved" class="btn-card" style="border:0; background:var(--success); color:white; padding:5px 8px; font-size:0.75rem; cursor:pointer;">Approve</button>
+                                    <button name="payment_status" value="Rejected" class="btn-card" style="border:0; background:var(--danger); color:white; padding:5px 8px; font-size:0.75rem; cursor:pointer;">Reject</button>
+                                </form>
+                            </div>
+                        </td>
+                        <td>
+                            {% if order.payment_screenshot %}
+                                <a href="{{ order.payment_screenshot }}" target="_blank" class="btn-card" style="font-size:0.75rem; padding:5px 8px;">View</a>
+                            {% else %}
+                                <span style="color:var(--text-muted); font-size:0.8rem;">No file</span>
+                            {% endif %}
+                        </td>
                         <td>
                             <form action="/admin/update-order-status/{{ order.id }}" method="POST" style="display:flex; align-items:center; gap:8px;">
                                 <select name="status" class="form-control-custom" style="padding: 4px 8px; font-size: 0.8rem; width: auto;" onchange="this.form.submit()">
+                                    <option value="Payment Pending" {% if order.status == 'Payment Pending' %}selected{% endif %}>Payment Pending</option>
                                     <option value="Pending" {% if order.status == 'Pending' %}selected{% endif %}>Pending</option>
                                     <option value="Processing" {% if order.status == 'Processing' %}selected{% endif %}>Processing</option>
                                     <option value="Shipped" {% if order.status == 'Shipped' %}selected{% endif %}>Shipped</option>
@@ -2539,46 +2570,61 @@ def product_detail(product_id):
 @app.route('/order/<int:product_id>', methods=['GET', 'POST'])
 def order(product_id):
     product = Product.query.get_or_404(product_id)
-    
-    # Check session
+
     if 'user_id' not in session:
         flash('Authentication required to purchase.', 'warning')
         return redirect(url_for('login'))
-        
+
     if request.method == 'POST':
         quantity = int(request.form.get('quantity', 1))
-        
+        shipping = int(request.form.get('delivery_state', 40))
+
         if quantity <= 0:
             flash('Invalid quantity selected.', 'danger')
             return redirect(url_for('order', product_id=product.id))
-            
+
         if quantity > product.stock_quantity:
             flash(f'Insufficient stock. Only {product.stock_quantity} available.', 'danger')
             return redirect(url_for('order', product_id=product.id))
-            
-        # Calculate pricing
+
+        payment_file = request.files.get('payment_screenshot')
+        if not payment_file or payment_file.filename == '':
+            flash('Please upload your GPay payment screenshot.', 'danger')
+            return redirect(url_for('order', product_id=product.id))
+
+        if not allowed_payment_file(payment_file.filename):
+            flash('Only PNG, JPG, JPEG, or WEBP screenshots are allowed.', 'danger')
+            return redirect(url_for('order', product_id=product.id))
+
         subtotal = product.price * quantity
-        shipping = 0 if subtotal >= 150 else 15
         total_price = subtotal + shipping
-        
-        # Save order
+
+        os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+        safe_name = secure_filename(payment_file.filename)
+        unique_name = f"order_{session['user_id']}_{int(datetime.utcnow().timestamp())}_{safe_name}"
+        save_path = os.path.join(app.config['UPLOAD_FOLDER'], unique_name)
+        payment_file.save(save_path)
+        screenshot_url = f"/static/payment_screenshots/{unique_name}"
+
         new_order = Order(
             user_id=session['user_id'],
             product_id=product.id,
             quantity=quantity,
             total_price=total_price,
-            status='Pending'
+            status='Payment Pending',
+            payment_method='GPay / UPI',
+            payment_status='Pending Verification',
+            payment_screenshot=screenshot_url
         )
-        # Decrement product stock
+
         product.stock_quantity -= quantity
-        
         db.session.add(new_order)
         db.session.commit()
-        
-        flash('Order successfully placed! View status below.', 'success')
+
+        flash('Order placed! Payment screenshot uploaded. Admin will verify your payment soon.', 'success')
         return redirect(url_for('dashboard'))
-        
-    return render_scatbys_template('order', product=product)
+
+    return render_scatbys_template('order', product=product, gpay_upi_id=G_PAY_UPI_ID, gpay_qr_image=G_PAY_QR_IMAGE)
 
 @app.route('/dashboard')
 @login_required
@@ -2599,9 +2645,9 @@ def admin_login():
         username = request.form.get('username', '').strip()
         password = request.form.get('password', '')
         
-        if username == 'aksin' and password == 'aksin@123':
+        if username == os.environ.get('ADMIN_USERNAME') and password == os.environ.get('ADMIN_PASSWORD'):
             session['admin_logged_in'] = True
-            session['admin_username'] = 'aksin'
+            session['admin_username'] = username
             flash('Authenticated successfully to Admin Panel.', 'success')
             return redirect(url_for('admin_dashboard'))
         else:
@@ -2725,12 +2771,29 @@ def admin_orders():
 def update_order_status(order_id):
     order_record = Order.query.get_or_404(order_id)
     new_status = request.form.get('status')
-    if new_status in ['Pending', 'Processing', 'Shipped', 'Delivered']:
+    if new_status in ['Payment Pending', 'Pending', 'Processing', 'Shipped', 'Delivered']:
         order_record.status = new_status
         db.session.commit()
         flash(f'Order #SCB-{order_record.id} status updated to {new_status}.', 'success')
     else:
         flash('Invalid status operation.', 'danger')
+    return redirect(url_for('admin_orders'))
+
+@app.route('/admin/update-payment-status/<int:order_id>', methods=['POST'])
+@admin_required
+def update_payment_status(order_id):
+    order_record = Order.query.get_or_404(order_id)
+    new_status = request.form.get('payment_status')
+    if new_status in ['Pending Verification', 'Approved', 'Rejected']:
+        order_record.payment_status = new_status
+        if new_status == 'Approved' and order_record.status == 'Payment Pending':
+            order_record.status = 'Processing'
+        elif new_status == 'Rejected':
+            order_record.status = 'Payment Pending'
+        db.session.commit()
+        flash(f'Payment for order #SCB-{order_record.id} marked as {new_status}.', 'success')
+    else:
+        flash('Invalid payment status.', 'danger')
     return redirect(url_for('admin_orders'))
 
 @app.route('/contact', methods=['POST'])
@@ -2779,7 +2842,22 @@ def initialize_database():
     """Creates database schema and inserts admin user and 5 custom products."""
     with app.app_context():
         db.create_all()
-        
+
+        # Lightweight migration for older SQLite databases
+        existing_cols = [row[1] for row in db.session.execute(db.text("PRAGMA table_info('order')")).fetchall()]
+        migrations = {
+            'payment_method': "ALTER TABLE 'order' ADD COLUMN payment_method VARCHAR(50) DEFAULT 'GPay / UPI'",
+            'payment_status': "ALTER TABLE 'order' ADD COLUMN payment_status VARCHAR(50) DEFAULT 'Pending Verification'",
+            'payment_screenshot': "ALTER TABLE 'order' ADD COLUMN payment_screenshot VARCHAR(255)"
+        }
+        for col, sql in migrations.items():
+            if col not in existing_cols:
+                db.session.execute(db.text(sql))
+        db.session.commit()
+
+        os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+        os.makedirs(os.path.join(app.root_path, 'static', 'payments'), exist_ok=True)
+
         # Copy product images from generated paths to app static resources
         static_images_dir = os.path.join(app.root_path, 'static', 'images')
         os.makedirs(static_images_dir, exist_ok=True)
