@@ -17,8 +17,8 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['UPLOAD_FOLDER'] = os.path.join(app.root_path, 'static', 'payment_screenshots')
 app.config['MAX_CONTENT_LENGTH'] = 5 * 1024 * 1024  # 5 MB max upload
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'webp'}
-G_PAY_UPI_ID = os.environ.get('G_PAY_UPI_ID', 'your-upi-id@okaxis')
-G_PAY_QR_IMAGE = os.environ.get('G_PAY_QR_IMAGE', '/static/payments/gpay-qr.png')
+G_PAY_UPI_ID = os.environ.get('G_PAY_UPI_ID') or os.environ.get('G_PAY_UPI') or 'achuakash879-2@okhdfcbank'
+G_PAY_QR_IMAGE = os.environ.get('G_PAY_QR_IMAGE') or os.environ.get('G_PAY_QR') or '/static/payments/gpay-qr.png'
 
 db = SQLAlchemy()
 db.init_app(app)
@@ -1862,25 +1862,34 @@ ORDER_TEMPLATE = """
                 </div>
                 <div>
                     <label class="form-label">Payment Method</label>
-                    <select class="form-control-custom">
-                        <option>Credit Card (Mock)</option>
-                        <option>PayPal (Mock)</option>
-                        <option>Scatbys Wallet</option>
+                    <select class="form-control-custom" name="payment_method" required>
+                        <option value="GPay / UPI" selected>GPay / UPI Manual Payment</option>
                     </select>
                 </div>
             </div>
 
-            <h4 style="margin-top: 30px; margin-bottom: 20px; font-size:1.25rem;"><i class="fa-solid fa-credit-card"></i> Payment Details</h4>
-            <div class="form-group">
-                <label class="form-label">Cardholder Name</label>
-                <input type="text" class="form-control-custom" placeholder="John Doe" required>
+            <h4 style="margin-top: 30px; margin-bottom: 20px; font-size:1.25rem;"><i class="fa-solid fa-qrcode"></i> GPay / UPI Payment</h4>
+            <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:16px; padding:22px; margin-bottom:20px;">
+                <p style="margin-bottom:12px; font-weight:700; color:var(--dark);">Scan the QR code and pay the total amount shown in the order summary.</p>
+                <div style="display:grid; grid-template-columns: 220px 1fr; gap:20px; align-items:center;">
+                    <div style="background:white; border:1px solid #e2e8f0; border-radius:14px; padding:12px; text-align:center;">
+                        <img src="{{ gpay_qr_image }}" alt="GPay QR Code" style="width:100%; max-width:190px; border-radius:10px;">
+                    </div>
+                    <div>
+                        <div style="font-size:0.85rem; color:var(--text-muted); font-weight:700; text-transform:uppercase;">UPI ID</div>
+                        <div style="font-size:1.1rem; font-weight:800; color:var(--primary); word-break:break-word; margin-bottom:12px;">{{ gpay_upi_id }}</div>
+                        <p style="font-size:0.9rem; color:var(--dark-light); line-height:1.7;">After completing payment, upload the payment screenshot below. Your order will be confirmed only after admin verification.</p>
+                    </div>
+                </div>
             </div>
+
             <div class="form-group">
-                <label class="form-label">Card Number</label>
-                <input type="text" class="form-control-custom" placeholder="1111 - 2222 - 3333 - 4444" required>
+                <label class="form-label"><i class="fa-solid fa-receipt"></i> Upload Payment Screenshot</label>
+                <input type="file" name="payment_screenshot" class="form-control-custom" accept="image/png,image/jpeg,image/jpg,image/webp" required>
+                <small style="color:var(--text-muted);">Allowed formats: PNG, JPG, JPEG, WEBP. Maximum size: 5 MB.</small>
             </div>
             
-            <button type="submit" class="btn-submit" style="margin-top: 15px;"><i class="fa-solid fa-circle-check"></i> Place Secure Order</button>
+            <button type="submit" class="btn-submit" style="margin-top: 15px;"><i class="fa-solid fa-circle-check"></i> I Have Paid - Place Order</button>
         </form>
     </div>
 
